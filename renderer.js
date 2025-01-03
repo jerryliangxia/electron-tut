@@ -7,3 +7,11 @@ setButton.addEventListener("click", () => {
   const title = titleInput.value;
   window.electronAPI.setTitle(title);
 });
+
+const btnFile = document.getElementById("btnFile");
+const filePathElement = document.getElementById("filePath");
+
+btnFile.addEventListener("click", async () => {
+  const filePath = await window.electronAPI.openFile();
+  filePathElement.innerText = filePath;
+});
