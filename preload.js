@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openFile: () => ipcRenderer.invoke("dialog:openFile"),
   onUpdateCounter: (callback) =>
     ipcRenderer.on("update-counter", (_event, value) => callback(value)),
+  // expose/define function
+  counterValue: (value) => ipcRenderer.send("counter-value", value),
 });
 
 // // Alternative for calling ipcRenderer from within the preload script
