@@ -47,10 +47,6 @@ const createWindow = () => {
 app.whenReady().then(() => {
   ipcMain.on("set-title", handleSetTitle);
   ipcMain.handle("dialog:openFile", handleFileOpen);
-  // just a console.log
-  ipcMain.on("counter-value", (_event, value) => {
-    console.log(value);
-  });
   createWindow();
 
   app.on("activate", () => {
