@@ -10,4 +10,17 @@ contextBridge.exposeInMainWorld("versions", {
 contextBridge.exposeInMainWorld("electronAPI", {
   setTitle: (title) => ipcRenderer.send("set-title", title),
   openFile: () => ipcRenderer.invoke("dialog:openFile"),
+  onUpdateCounter: (callback) =>
+    ipcRenderer.on("update-counter", (_event, value) => callback(value)),
 });
+
+// // Alternative for calling ipcRenderer from within the preload script
+// // Isn't ideal since it can't interact with renderer code
+// window.addEventListener("DOMContentLoaded", () => {
+//   const counter = document.getElementById("counter");
+//   ipcRenderer.on("update-counter", (_event, value) => {
+//     const oldValue = Number(counter.innerText);
+//     const newValue = oldValue + value;
+//     counter.innerText = newValue;
+//   });
+// });

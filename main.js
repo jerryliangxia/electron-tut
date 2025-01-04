@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron/main");
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron/main");
 const path = require("node:path");
 
 function handleSetTitle(event, title) {
@@ -23,12 +23,34 @@ const createWindow = () => {
     },
   });
 
+  const menu = Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        {
+          click: () => win.webContents.send("update-counter", 1),
+          label: "Increment",
+        },
+        {
+          click: () => win.webContents.send("update-counter", -1),
+          label: "Decrement",
+        },
+      ],
+    },
+  ]);
+
+  Menu.setApplicationMenu(menu);
+
   win.loadFile("index.html");
 };
 
 app.whenReady().then(() => {
   ipcMain.on("set-title", handleSetTitle);
   ipcMain.handle("dialog:openFile", handleFileOpen);
+  // just a console.log
+  ipcMain.on("counter-value", (_event, value) => {
+    console.log(value);
+  });
   createWindow();
 
   app.on("activate", () => {
