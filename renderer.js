@@ -1,27 +1,35 @@
-const information = document.getElementById("info");
-information.innerText = `This app is using Chrome (v${versions.chrome()}), Node.js (v${versions.node()}), and Electron (v${versions.electron()})`;
+const updateOnlineStatus = () => {
+  document.getElementById("status").innerHTML = navigator.onLine
+    ? "online"
+    : "offline";
+};
 
-const setButton = document.getElementById("btn");
-const titleInput = document.getElementById("title");
-setButton.addEventListener("click", () => {
-  const title = titleInput.value;
-  window.electronAPI.setTitle(title);
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+
+updateOnlineStatus();
+
+// const NOTIFICATION_TITLE = "Title";
+// const NOTIFICATION_BODY =
+//   "Notification from the Renderer process. Click to log to console.";
+// const CLICK_MESSAGE = "Notification clicked";
+
+// console.log("Hello");
+
+// new window.Notification(NOTIFICATION_TITLE, {
+//   body: NOTIFICATION_BODY,
+// }).onclick = () => {
+//   document.getElementById("output").innerText = CLICK_MESSAGE;
+// };
+
+const notifyButton = document.getElementById("notifyButton");
+const outputElement = document.getElementById("output");
+
+notifyButton.addEventListener("click", () => {
+  window.electronAPI.showNotification();
 });
 
-const btnFile = document.getElementById("btnFile");
-const filePathElement = document.getElementById("filePath");
-
-btnFile.addEventListener("click", async () => {
-  const filePath = await window.electronAPI.openFile();
-  filePathElement.innerText = filePath;
-});
-
-const counter = document.getElementById("counter");
-
-window.electronAPI.onUpdateCounter((value) => {
-  const oldValue = Number(counter.innerText);
-  const newValue = oldValue + value;
-  counter.innerText = newValue.toString();
-  // call function
-  window.electronAPI.counterValue(newValue);
+// Listen for notification click event
+window.electronAPI.on("notification-clicked", () => {
+  outputElement.innerText = "Notification was clicked!";
 });

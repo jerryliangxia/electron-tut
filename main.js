@@ -1,63 +1,48 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron/main");
-const path = require("node:path");
+const { app, BrowserWindow, Notification, ipcMain } = require("electron");
+const path = require("path");
 
-function handleSetTitle(event, title) {
-  const webContents = event.sender;
-  const win = BrowserWindow.fromWebContents(webContents);
-  win.setTitle(title);
-}
+// Define constants for window dimensions
+const WINDOW_WIDTH = 800;
+const WINDOW_HEIGHT = 600;
 
-async function handleFileOpen() {
-  const { canceled, filePaths } = await dialog.showOpenDialog({});
-  if (!canceled) {
-    return filePaths[0];
-  }
+// Function to show notification
+function handleShowNotification(event) {
+  const NOTIFICATION_TITLE = "Basic Notification";
+  const NOTIFICATION_BODY = "Notification from the Main process";
+
+  const notification = new Notification({
+    title: NOTIFICATION_TITLE,
+    body: NOTIFICATION_BODY,
+  });
+
+  notification.show();
+
+  // Send a message to the renderer process when the notification is clicked
+  notification.on("click", () => {
+    event.sender.send("notification-clicked");
+  });
 }
 
 const createWindow = () => {
-  const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+  const { width } = require("electron").screen.getPrimaryDisplay().workAreaSize;
+
+  const onlineStatusWindow = new BrowserWindow({
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
+    x: width - WINDOW_WIDTH, // Position at the right edge
+    y: 0, // Position at the top
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
+    titleBarStyle: "hidden",
   });
 
-  const menu = Menu.buildFromTemplate([
-    {
-      label: app.name,
-      submenu: [
-        {
-          click: () => win.webContents.send("update-counter", 1),
-          label: "Increment",
-        },
-        {
-          click: () => win.webContents.send("update-counter", -1),
-          label: "Decrement",
-        },
-      ],
-    },
-  ]);
-
-  Menu.setApplicationMenu(menu);
-
-  win.loadFile("index.html");
+  onlineStatusWindow.loadFile("index.html");
 };
 
 app.whenReady().then(() => {
-  ipcMain.on("set-title", handleSetTitle);
-  ipcMain.handle("dialog:openFile", handleFileOpen);
-  // do something with the function
-  ipcMain.on("counter-value", (_event, value) => {
-    console.log(value);
-  });
+  ipcMain.handle("show-notification", handleShowNotification);
   createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
 });
 
 app.on("window-all-closed", () => {
