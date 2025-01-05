@@ -1,28 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <meta
-      http-equiv="X-Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <title>Hello from Electron renderer!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your App</title>
   </head>
   <body>
-    <h1>Hello from Electron renderer!</h1>
-    <p>👋</p>
-    <p id="info"></p>
-    Title: <input id="title" />
-    <button id="btn" type="button">Set</button>
-    <button type="button" id="btnFile">Open a File</button>
-    File path: <strong id="filePath"></strong> Current value:
-    <strong id="counter">0</strong>
-    <script src="./renderer.js"></script>
+    <h1>Connection status: <strong id="status"></strong></h1>
+    <button type="button" id="notifyButton">Show Notification</button>
+    <p id="output"></p>
+    <script src="renderer.js"></script>
   </body>
-  <script src="./renderer.js"></script>
 </html>
