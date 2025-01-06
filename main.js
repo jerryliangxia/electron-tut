@@ -386,7 +386,36 @@ async function getUserDailyScore(userId) {
 
 app.whenReady().then(async () => {
   ipcMain.handle("show-notification", handleShowNotification);
-  createWindow();
+  ipcMain.handle("get-user-stats", async () => {
+    const stats = await getUserData(userStatus.user);
+    if (!stats || !stats.user) {
+      return {
+        username: "Not logged in",
+        is_online: false,
+        daily_score: 0,
+        scores: {
+          today: 0,
+          week: 0,
+          month: 0,
+          year: 0,
+        },
+        hours: {
+          today: 0,
+          week: 0,
+          month: 0,
+          year: 0,
+        },
+      };
+    }
+
+    return {
+      username: stats.user.username,
+      is_online: stats.user.is_online,
+      daily_score: await getUserDailyScore(userStatus.user),
+      scores: stats.scores,
+      hours: stats.hours,
+    };
+  });
 
   // Create or get user first
   const user = await createOrGetUser("user-1");
@@ -407,6 +436,9 @@ app.whenReady().then(async () => {
     // Get all stats of user
     const stats = await getUserData(user.id);
     console.log("User statistics:", stats);
+
+    // Only create window after we have user data
+    createWindow();
   }
 });
 
