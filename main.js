@@ -6,14 +6,11 @@ const {
   powerMonitor,
 } = require("electron");
 const path = require("path");
-const {
-  WINDOW_WIDTH,
-  WINDOW_HEIGHT,
-  IDLE_THRESHOLD,
-  MULTIPLIER_INCREMENT,
-  MULTIPLIER_MAX,
-} = require("./config/constants");
+const { WINDOW_WIDTH, WINDOW_HEIGHT } = require("./config/constants");
 const { supabase } = require("./database/supabase");
+const userManager = require("./services/userManager");
+const sessionManager = require("./services/sessionManager");
+
 const userStatus = {
   user: "d7e419b4-93c3-4541-9acf-f50376e3c0d1",
   online_at: new Date().toISOString(),
@@ -31,141 +28,6 @@ async function getOnlineUsers() {
   }
   return data;
 }
-// Store the current session ID
-let currentSessionId = null;
-
-let currentSession = null;
-
-// Function to calculate session score
-function calculateSessionScore(durationMinutes, multiplier) {
-  return durationMinutes * multiplier;
-}
-
-// Function to calculate multiplier based on duration
-function calculateMultiplier(durationMinutes) {
-  const multiplier =
-    1 + Math.floor(durationMinutes / 60) * MULTIPLIER_INCREMENT;
-  return Math.min(multiplier, MULTIPLIER_MAX);
-}
-
-// Function to update user online status
-async function updateUserOnlineStatus(userId, isOnline) {
-  const { error } = await supabase
-    .from("users")
-    .update({ is_online: isOnline })
-    .eq("id", userId);
-
-  if (error) console.error("Error updating user online status:", error);
-}
-
-// Function to start a new session
-async function startSession(userId, sessionType) {
-  // Start transaction by updating user status first
-  await updateUserOnlineStatus(userId, true);
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .insert({
-      user_id: userId,
-      session_type: sessionType,
-      start_time: new Date().toISOString(),
-    })
-    .select()
-    .single();
-
-  if (error) console.error("Error starting session:", error);
-  return data;
-}
-
-// Function to end session
-async function endSession(sessionId) {
-  const endTime = new Date();
-  const session = currentSession;
-
-  if (!session) return;
-
-  // Update user status first
-  await updateUserOnlineStatus(session.user_id, false);
-
-  const durationMinutes = Math.floor(
-    (endTime - new Date(session.start_time)) / 1000 / 60
-  );
-  const multiplier = calculateMultiplier(durationMinutes);
-  const score = calculateSessionScore(durationMinutes, multiplier);
-
-  const { error } = await supabase
-    .from("sessions")
-    .update({
-      end_time: endTime.toISOString(),
-      duration_minutes: durationMinutes,
-      multiplier: multiplier,
-      score: score,
-    })
-    .eq("id", sessionId);
-
-  if (error) console.error("Error ending session:", error);
-  currentSession = null;
-}
-
-// Function to update session duration
-async function updateSessionDuration(sessionId, startTime) {
-  const now = new Date();
-  const durationMinutes = Math.floor((now - new Date(startTime)) / 1000 / 60);
-  const multiplier = calculateMultiplier(durationMinutes);
-  const score = calculateSessionScore(durationMinutes, multiplier);
-
-  const { error } = await supabase
-    .from("sessions")
-    .update({
-      duration_minutes: durationMinutes,
-      multiplier: multiplier,
-      score: score,
-    })
-    .eq("id", sessionId);
-
-  if (error) console.error("Error updating session duration:", error);
-}
-
-// Function to check and handle idle state
-function checkIdleState() {
-  const idleState = powerMonitor.getSystemIdleState(IDLE_THRESHOLD);
-  const now = Date.now();
-
-  if (currentSession) {
-    // Update duration periodically even if not idle
-    updateSessionDuration(currentSession.id, currentSession.start_time);
-  }
-
-  if (idleState === "idle" && currentSession) {
-    // If user became idle, end the current session
-    endSession(currentSession.id);
-  } else if (idleState === "active" && !currentSession) {
-    // If user became active and there's no current session, start a new one
-    startSession(userStatus.user, "app_session").then((session) => {
-      currentSession = session;
-    });
-  }
-
-  lastActiveTime = now;
-}
-
-// Set up idle checking interval
-setInterval(checkIdleState, 60000); // Check every minute
-
-// Modify existing power monitor listeners
-powerMonitor.addListener("lock-screen", async () => {
-  console.log("lock-screen");
-  if (currentSession) {
-    await endSession(currentSession.id);
-  }
-});
-
-powerMonitor.addListener("unlock-screen", async () => {
-  console.log("unlock-screen");
-  const session = await startSession(userStatus.user, "screen_session");
-  currentSession = session;
-});
-
 // Function to get complete user data
 async function getUserData(userId) {
   const now = new Date();
@@ -283,32 +145,6 @@ const createWindow = () => {
   onlineStatusWindow.loadFile("index.html");
 };
 
-async function createOrGetUser(username) {
-  // Try to get existing user
-  let { data: user, error } = await supabase
-    .from("users")
-    .select("*")
-    .eq("username", username)
-    .single();
-
-  // If user doesn't exist, create new one
-  if (!user) {
-    const { data: newUser, error: createError } = await supabase
-      .from("users")
-      .insert({ username: username })
-      .select()
-      .single();
-
-    if (createError) {
-      console.error("Error creating user:", createError);
-      return null;
-    }
-    user = newUser;
-  }
-
-  return user;
-}
-
 // Function to get user's daily score
 async function getUserDailyScore(userId) {
   const now = new Date();
@@ -366,7 +202,7 @@ app.whenReady().then(async () => {
   });
 
   // Create or get user first
-  const user = await createOrGetUser("user-1");
+  const user = await userManager.createOrGetUser("user-1");
   if (user) {
     userStatus.user = user.id; // Use the UUID from the database
 
@@ -374,7 +210,7 @@ app.whenReady().then(async () => {
     console.log("Currently online users:", onlineUsers);
 
     // Start initial session with proper UUID
-    const session = await startSession(user.id, "app_session");
+    const session = await sessionManager.startSession(user.id, "app_session");
     currentSession = session;
 
     // Get and log user daily score
@@ -390,18 +226,23 @@ app.whenReady().then(async () => {
   }
 });
 
+// For SessionManager
+powerMonitor.addListener("lock-screen", async () => {
+  await sessionManager.handleLockScreen();
+});
+
+powerMonitor.addListener("unlock-screen", async () => {
+  await sessionManager.handleUnlockScreen();
+});
+
+app.on("before-quit", async (event) => {
+  await sessionManager.handleAppQuit(event);
+});
+
+// Don't do anything for MacOS
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-  }
-});
-
-// Add these event listeners for app quit
-app.on("before-quit", async (event) => {
-  if (currentSession) {
-    event.preventDefault();
-    await endSession(currentSession.id);
-    app.quit();
   }
 });
 
