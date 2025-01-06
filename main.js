@@ -6,61 +6,18 @@ const {
   powerMonitor,
 } = require("electron");
 const path = require("path");
-const { createClient } = require("@supabase/supabase-js");
-
-const supabaseUrl = "https://qciyrtfoffuvludubhfw.supabase.co";
-const supabaseKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjaXlydGZvZmZ1dmx1ZHViaGZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYwNTE1NzMsImV4cCI6MjA1MTYyNzU3M30.iaL29PnHZEPL2HtA9wrH9R7yF2tri4BerdoAUbOBuFg";
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-const roomOne = supabase.channel("room_01");
-
+const {
+  WINDOW_WIDTH,
+  WINDOW_HEIGHT,
+  IDLE_THRESHOLD,
+  MULTIPLIER_INCREMENT,
+  MULTIPLIER_MAX,
+} = require("./config/constants");
+const { supabase } = require("./database/supabase");
 const userStatus = {
   user: "d7e419b4-93c3-4541-9acf-f50376e3c0d1",
   online_at: new Date().toISOString(),
 };
-
-// Combine presence events and subscription into a single chain
-roomOne
-  .on("presence", { event: "sync" }, () => {
-    const newState = roomOne.presenceState();
-    console.log("sync", newState);
-  })
-  .on("presence", { event: "join" }, async ({ key, newPresences }) => {
-    console.log("join", key, newPresences);
-    currentSessionId = key; // Store the session ID
-
-    // Store new session in database
-    const { error } = await supabase.from("user_sessions").insert({
-      user_id: newPresences[0].user,
-      session_id: key,
-      online_at: newPresences[0].online_at,
-      presence_ref: newPresences[0].presence_ref,
-      is_online: true,
-    });
-
-    if (error) console.error("Error storing session:", error);
-  })
-  .on("presence", { event: "leave" }, async ({ key, leftPresences }) => {
-    console.log("leave", key, leftPresences);
-
-    // Update session when user leaves
-    const { error } = await supabase
-      .from("user_sessions")
-      .update({
-        is_online: false,
-        offline_at: new Date().toISOString(),
-      })
-      .eq("session_id", key);
-
-    if (error) console.error("Error updating session:", error);
-  })
-  .subscribe(async (status) => {
-    if (status === "SUBSCRIBED") {
-      const presenceTrackStatus = await roomOne.track(userStatus);
-      console.log("Presence tracking status:", presenceTrackStatus);
-    }
-  });
 
 async function getOnlineUsers() {
   const { data, error } = await supabase
@@ -77,16 +34,7 @@ async function getOnlineUsers() {
 // Store the current session ID
 let currentSessionId = null;
 
-// Define constants for window dimensions
-const WINDOW_WIDTH = 800;
-const WINDOW_HEIGHT = 600;
-
-// Configuration constants
-const IDLE_THRESHOLD = 5 * 60; // 5 minutes in seconds
-const MULTIPLIER_INCREMENT = 0.1; // Multiplier increases by 0.1 every hour
-const MULTIPLIER_MAX = 3.0; // Maximum multiplier cap
 let currentSession = null;
-let lastActiveTime = Date.now();
 
 // Function to calculate session score
 function calculateSessionScore(durationMinutes, multiplier) {
