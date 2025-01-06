@@ -19,5 +19,8 @@
   "homepage": "https://github.com/jerryliangxia/electron-tut#readme",
   "devDependencies": {
     "electron": "^33.2.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10"
   }
 }

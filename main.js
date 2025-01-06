@@ -1,9 +1,266 @@
-const { app, BrowserWindow, Notification, ipcMain } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Notification,
+  ipcMain,
+  powerMonitor,
+} = require("electron");
 const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
+
+const supabaseUrl = "https://qciyrtfoffuvludubhfw.supabase.co";
+const supabaseKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjaXlydGZvZmZ1dmx1ZHViaGZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYwNTE1NzMsImV4cCI6MjA1MTYyNzU3M30.iaL29PnHZEPL2HtA9wrH9R7yF2tri4BerdoAUbOBuFg";
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const roomOne = supabase.channel("room_01");
+
+const userStatus = {
+  user: "d7e419b4-93c3-4541-9acf-f50376e3c0d1",
+  online_at: new Date().toISOString(),
+};
+
+// Combine presence events and subscription into a single chain
+roomOne
+  .on("presence", { event: "sync" }, () => {
+    const newState = roomOne.presenceState();
+    console.log("sync", newState);
+  })
+  .on("presence", { event: "join" }, async ({ key, newPresences }) => {
+    console.log("join", key, newPresences);
+    currentSessionId = key; // Store the session ID
+
+    // Store new session in database
+    const { error } = await supabase.from("user_sessions").insert({
+      user_id: newPresences[0].user,
+      session_id: key,
+      online_at: newPresences[0].online_at,
+      presence_ref: newPresences[0].presence_ref,
+      is_online: true,
+    });
+
+    if (error) console.error("Error storing session:", error);
+  })
+  .on("presence", { event: "leave" }, async ({ key, leftPresences }) => {
+    console.log("leave", key, leftPresences);
+
+    // Update session when user leaves
+    const { error } = await supabase
+      .from("user_sessions")
+      .update({
+        is_online: false,
+        offline_at: new Date().toISOString(),
+      })
+      .eq("session_id", key);
+
+    if (error) console.error("Error updating session:", error);
+  })
+  .subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      const presenceTrackStatus = await roomOne.track(userStatus);
+      console.log("Presence tracking status:", presenceTrackStatus);
+    }
+  });
+
+async function getOnlineUsers() {
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("is_online", true);
+
+  if (error) {
+    console.error("Error fetching online users:", error);
+    return [];
+  }
+  return data;
+}
+// Store the current session ID
+let currentSessionId = null;
 
 // Define constants for window dimensions
 const WINDOW_WIDTH = 800;
 const WINDOW_HEIGHT = 600;
+
+// Configuration constants
+const IDLE_THRESHOLD = 5 * 60; // 5 minutes in seconds
+const MULTIPLIER_INCREMENT = 0.1; // Multiplier increases by 0.1 every hour
+const MULTIPLIER_MAX = 3.0; // Maximum multiplier cap
+let currentSession = null;
+let lastActiveTime = Date.now();
+
+// Function to calculate session score
+function calculateSessionScore(durationMinutes, multiplier) {
+  return durationMinutes * multiplier;
+}
+
+// Function to calculate multiplier based on duration
+function calculateMultiplier(durationMinutes) {
+  const multiplier =
+    1 + Math.floor(durationMinutes / 60) * MULTIPLIER_INCREMENT;
+  return Math.min(multiplier, MULTIPLIER_MAX);
+}
+
+// Function to update user online status
+async function updateUserOnlineStatus(userId, isOnline) {
+  const { error } = await supabase
+    .from("users")
+    .update({ is_online: isOnline })
+    .eq("id", userId);
+
+  if (error) console.error("Error updating user online status:", error);
+}
+
+// Function to start a new session
+async function startSession(userId, sessionType) {
+  // Start transaction by updating user status first
+  await updateUserOnlineStatus(userId, true);
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .insert({
+      user_id: userId,
+      session_type: sessionType,
+      start_time: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) console.error("Error starting session:", error);
+  return data;
+}
+
+// Function to end session
+async function endSession(sessionId) {
+  const endTime = new Date();
+  const session = currentSession;
+
+  if (!session) return;
+
+  // Update user status first
+  await updateUserOnlineStatus(session.user_id, false);
+
+  const durationMinutes = Math.floor(
+    (endTime - new Date(session.start_time)) / 1000 / 60
+  );
+  const multiplier = calculateMultiplier(durationMinutes);
+  const score = calculateSessionScore(durationMinutes, multiplier);
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({
+      end_time: endTime.toISOString(),
+      duration_minutes: durationMinutes,
+      multiplier: multiplier,
+      score: score,
+    })
+    .eq("id", sessionId);
+
+  if (error) console.error("Error ending session:", error);
+  currentSession = null;
+}
+
+// Function to update session duration
+async function updateSessionDuration(sessionId, startTime) {
+  const now = new Date();
+  const durationMinutes = Math.floor((now - new Date(startTime)) / 1000 / 60);
+  const multiplier = calculateMultiplier(durationMinutes);
+  const score = calculateSessionScore(durationMinutes, multiplier);
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({
+      duration_minutes: durationMinutes,
+      multiplier: multiplier,
+      score: score,
+    })
+    .eq("id", sessionId);
+
+  if (error) console.error("Error updating session duration:", error);
+}
+
+// Function to check and handle idle state
+function checkIdleState() {
+  const idleState = powerMonitor.getSystemIdleState(IDLE_THRESHOLD);
+  const now = Date.now();
+
+  if (currentSession) {
+    // Update duration periodically even if not idle
+    updateSessionDuration(currentSession.id, currentSession.start_time);
+  }
+
+  if (idleState === "idle" && currentSession) {
+    // If user became idle, end the current session
+    endSession(currentSession.id);
+  } else if (idleState === "active" && !currentSession) {
+    // If user became active and there's no current session, start a new one
+    startSession(userStatus.user, "app_session").then((session) => {
+      currentSession = session;
+    });
+  }
+
+  lastActiveTime = now;
+}
+
+// Set up idle checking interval
+setInterval(checkIdleState, 60000); // Check every minute
+
+// Modify existing power monitor listeners
+powerMonitor.addListener("lock-screen", async () => {
+  console.log("lock-screen");
+  if (currentSession) {
+    await endSession(currentSession.id);
+  }
+});
+
+powerMonitor.addListener("unlock-screen", async () => {
+  console.log("unlock-screen");
+  const session = await startSession(userStatus.user, "screen_session");
+  currentSession = session;
+});
+
+// Add these functions to get user statistics
+async function getUserStats(userId) {
+  const now = new Date();
+  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  const startOfMonth = new Date(now.setDate(1));
+  const startOfYear = new Date(now.setMonth(0, 1));
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("duration_minutes, start_time")
+    .eq("user_id", userId)
+    .gte("start_time", startOfYear.toISOString());
+
+  if (error) {
+    console.error("Error fetching user stats:", error);
+    return null;
+  }
+
+  const stats = {
+    today: 0,
+    week: 0,
+    month: 0,
+    year: 0,
+  };
+
+  data.forEach((session) => {
+    const sessionStart = new Date(session.start_time);
+    const minutes = session.duration_minutes || 0;
+
+    stats.year += minutes;
+    if (sessionStart >= startOfMonth) stats.month += minutes;
+    if (sessionStart >= startOfWeek) stats.week += minutes;
+    if (sessionStart >= startOfDay) stats.today += minutes;
+  });
+
+  return {
+    today: Math.round((stats.today / 60) * 100) / 100,
+    week: Math.round((stats.week / 60) * 100) / 100,
+    month: Math.round((stats.month / 60) * 100) / 100,
+    year: Math.round((stats.year / 60) * 100) / 100,
+  };
+}
 
 // Function to show notification
 function handleShowNotification(event) {
@@ -40,12 +297,70 @@ const createWindow = () => {
   onlineStatusWindow.loadFile("index.html");
 };
 
-app.whenReady().then(() => {
+async function createOrGetUser(username) {
+  // Try to get existing user
+  let { data: user, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("username", username)
+    .single();
+
+  // If user doesn't exist, create new one
+  if (!user) {
+    const { data: newUser, error: createError } = await supabase
+      .from("users")
+      .insert({ username: username })
+      .select()
+      .single();
+
+    if (createError) {
+      console.error("Error creating user:", createError);
+      return null;
+    }
+    user = newUser;
+  }
+
+  return user;
+}
+
+app.whenReady().then(async () => {
   ipcMain.handle("show-notification", handleShowNotification);
   createWindow();
+
+  // Create or get user first
+  const user = await createOrGetUser("user-1");
+  if (user) {
+    userStatus.user = user.id; // Use the UUID from the database
+
+    const onlineUsers = await getOnlineUsers();
+    console.log("Currently online users:", onlineUsers);
+
+    // Start initial session with proper UUID
+    const session = await startSession(user.id, "app_session");
+    currentSession = session;
+
+    // Get and log user stats
+    const stats = await getUserStats(user.id);
+    console.log("User statistics (hours):", stats);
+  }
 });
 
-app.on("window-all-closed", () => {
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+// Add these event listeners for app quit
+app.on("before-quit", async (event) => {
+  if (currentSession) {
+    event.preventDefault();
+    await endSession(currentSession.id);
+    app.quit();
+  }
+});
+
+app.on("window-all-closed", (e) => {
   if (process.platform !== "darwin") {
     app.quit();
   }
