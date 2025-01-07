@@ -10,105 +10,11 @@ const { WINDOW_WIDTH, WINDOW_HEIGHT } = require("./config/constants");
 const { supabase } = require("./database/supabase");
 const userManager = require("./services/userManager");
 const sessionManager = require("./services/sessionManager");
-
+const statsManager = require("./services/statsManager");
 const userStatus = {
   user: "d7e419b4-93c3-4541-9acf-f50376e3c0d1",
   online_at: new Date().toISOString(),
 };
-
-async function getOnlineUsers() {
-  const { data, error } = await supabase
-    .from("users")
-    .select("*")
-    .eq("is_online", true);
-
-  if (error) {
-    console.error("Error fetching online users:", error);
-    return [];
-  }
-  return data;
-}
-// Function to get complete user data
-async function getUserData(userId) {
-  const now = new Date();
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
-  const startOfMonth = new Date(now.setDate(1));
-  const startOfYear = new Date(now.setMonth(0, 1));
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .select(
-      `
-      score,
-      duration_minutes,
-      start_time,
-      users (
-        id,
-        username,
-        is_online
-      )
-    `
-    )
-    .eq("user_id", userId)
-    .gte("start_time", startOfYear.toISOString());
-
-  if (error) {
-    console.error("Error fetching user data:", error);
-    return null;
-  }
-
-  const stats = {
-    scores: {
-      today: 0,
-      week: 0,
-      month: 0,
-      year: 0,
-    },
-    hours: {
-      today: 0,
-      week: 0,
-      month: 0,
-      year: 0,
-    },
-    user: data[0]?.users || null,
-  };
-
-  data.forEach((session) => {
-    const sessionStart = new Date(session.start_time);
-    const score = session.score || 0;
-    const minutes = session.duration_minutes || 0;
-
-    // Accumulate scores
-    stats.scores.year += score;
-    if (sessionStart >= startOfMonth) stats.scores.month += score;
-    if (sessionStart >= startOfWeek) stats.scores.week += score;
-    if (sessionStart >= startOfDay) stats.scores.today += score;
-
-    // Accumulate hours
-    stats.hours.year += minutes;
-    if (sessionStart >= startOfMonth) stats.hours.month += minutes;
-    if (sessionStart >= startOfWeek) stats.hours.week += minutes;
-    if (sessionStart >= startOfDay) stats.hours.today += minutes;
-  });
-
-  // Convert minutes to hours and round everything
-  return {
-    user: stats.user,
-    scores: {
-      today: Math.round(stats.scores.today * 100) / 100,
-      week: Math.round(stats.scores.week * 100) / 100,
-      month: Math.round(stats.scores.month * 100) / 100,
-      year: Math.round(stats.scores.year * 100) / 100,
-    },
-    hours: {
-      today: Math.round((stats.hours.today / 60) * 100) / 100,
-      week: Math.round((stats.hours.week / 60) * 100) / 100,
-      month: Math.round((stats.hours.month / 60) * 100) / 100,
-      year: Math.round((stats.hours.year / 60) * 100) / 100,
-    },
-  };
-}
 
 // Function to show notification
 function handleShowNotification(event) {
@@ -145,33 +51,10 @@ const createWindow = () => {
   onlineStatusWindow.loadFile("index.html");
 };
 
-// Function to get user's daily score
-async function getUserDailyScore(userId) {
-  const now = new Date();
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("score")
-    .eq("user_id", userId)
-    .gte("start_time", startOfDay.toISOString());
-
-  if (error) {
-    console.error("Error fetching user daily score:", error);
-    return null;
-  }
-
-  const dailyScore = data.reduce(
-    (total, session) => total + (session.score || 0),
-    0
-  );
-  return Math.round(dailyScore * 100) / 100;
-}
-
 app.whenReady().then(async () => {
   ipcMain.handle("show-notification", handleShowNotification);
   ipcMain.handle("get-user-stats", async () => {
-    const stats = await getUserData(userStatus.user);
+    const stats = await statsManager.getUserData(userStatus.user);
     if (!stats || !stats.user) {
       return {
         username: "Not logged in",
@@ -195,7 +78,7 @@ app.whenReady().then(async () => {
     return {
       username: stats.user.username,
       is_online: stats.user.is_online,
-      daily_score: await getUserDailyScore(userStatus.user),
+      daily_score: await statsManager.getUserDailyScore(userStatus.user),
       scores: stats.scores,
       hours: stats.hours,
     };
@@ -206,7 +89,7 @@ app.whenReady().then(async () => {
   if (user) {
     userStatus.user = user.id; // Use the UUID from the database
 
-    const onlineUsers = await getOnlineUsers();
+    const onlineUsers = await statsManager.getOnlineUsers();
     console.log("Currently online users:", onlineUsers);
 
     // Start initial session with proper UUID
@@ -214,11 +97,11 @@ app.whenReady().then(async () => {
     currentSession = session;
 
     // Get and log user daily score
-    const dailyScore = await getUserDailyScore(user.id);
+    const dailyScore = await statsManager.getUserDailyScore(user.id);
     console.log("User daily score:", dailyScore);
 
     // Get all stats of user
-    const stats = await getUserData(user.id);
+    const stats = await statsManager.getUserData(user.id);
     console.log("User statistics:", stats);
 
     // Only create window after we have user data
