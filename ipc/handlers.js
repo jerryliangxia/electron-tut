@@ -1,4 +1,4 @@
-const { ipcMain, Notification } = require("electron");
+const { ipcMain } = require("electron");
 const statsManager = require("../services/statsManager");
 const userManager = require("../services/userManager");
 const sessionManager = require("../services/sessionManager");
@@ -8,26 +8,7 @@ const userStatus = {
   online_at: new Date().toISOString(),
 };
 
-// Function to show notification
-function handleShowNotification(event) {
-  const NOTIFICATION_TITLE = "Basic Notification";
-  const NOTIFICATION_BODY = "Notification from the Main process";
-
-  const notification = new Notification({
-    title: NOTIFICATION_TITLE,
-    body: NOTIFICATION_BODY,
-  });
-
-  notification.show();
-
-  // Send a message to the renderer process when the notification is clicked
-  notification.on("click", () => {
-    event.sender.send("notification-clicked");
-  });
-}
-
 async function setupIpcHandlers() {
-  ipcMain.handle("show-notification", handleShowNotification);
   ipcMain.handle("get-user-stats", async () => {
     const stats = await statsManager.getUserData(userStatus.user);
     if (!stats || !stats.user) {

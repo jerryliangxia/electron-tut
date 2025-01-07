@@ -5,6 +5,7 @@ const {
   MULTIPLIER_MAX,
   IDLE_THRESHOLD,
 } = require("../config/constants");
+const userManager = require("./userManager");
 
 class SessionManager {
   constructor() {
@@ -26,6 +27,10 @@ class SessionManager {
 
   async startSession(userId, sessionType) {
     console.log(`Starting new ${sessionType} session for user:`, userId);
+
+    // Update user's online status to true
+    await userManager.updateUserOnlineStatus(userId, true);
+
     const { data, error } = await supabase
       .from("sessions")
       .insert({
@@ -62,23 +67,21 @@ class SessionManager {
   async handleLockScreen() {
     console.log("Screen locked, ending current session");
     if (this.currentSession) {
-      await this.endSession(this.currentSession.id);
-      this.currentSession = null; // Ensure current session is cleared
+      await this.endSession(this.currentSession.id); // This will set user to offline
+      this.currentSession = null;
     }
   }
 
   async handleUnlockScreen() {
     console.log("Screen unlocked, starting new session");
-    if (!this.currentSession) {
-      // Only start new session if we don't have one
+    if (!this.currentSession && this.lastUserId) {
       const session = await this.startSession(
         this.lastUserId,
         "screen_session"
-      );
+      ); // This will set user to online
       if (session) {
         console.log("New session started after unlock:", session.id);
         this.currentSession = session;
-        this.lastUserId = session.user_id; // Store user ID for future use
       } else {
         console.error("Failed to start new session after unlock");
       }
@@ -102,6 +105,9 @@ class SessionManager {
       console.log("No current session to end");
       return;
     }
+
+    // Update user's online status to false
+    await userManager.updateUserOnlineStatus(session.user_id, false);
 
     const durationMinutes = Math.floor(
       (endTime - new Date(session.start_time)) / 1000 / 60
