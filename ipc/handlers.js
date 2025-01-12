@@ -4,7 +4,7 @@ const userManager = require("../services/userManager");
 const sessionManager = require("../services/sessionManager");
 
 const userStatus = {
-  user: "d7e419b4-93c3-4541-9acf-f50376e3c0d1",
+  user: "fa775f64-340a-422a-a665-6e18cdd6b4b8",
   online_at: new Date().toISOString(),
 };
 
@@ -41,7 +41,7 @@ async function setupIpcHandlers() {
   });
 
   // Create or get user first
-  const user = await userManager.createOrGetUser("user-1");
+  const user = await userManager.createOrGetUser("user1");
   if (user) {
     userStatus.user = user.id; // Use the UUID from the database
 
